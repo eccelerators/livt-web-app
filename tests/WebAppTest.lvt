@@ -1,0 +1,76 @@
+namespace Livt.WebApp.Tests
+
+using Livt.Net
+using Livt.WebApp
+
+@Test
+component WebAppTest
+{
+	const TX_PING_CONTROL: logic[13] = 0b0011111111100
+
+	axi: Axi4LiteEthernetLiteAdapter
+	server: WebApp
+	rx: logic
+	tx: logic
+	ethernet_frame_detected: logic
+
+	new()
+	{
+		var localMac: byte[6]
+		localMac[0] = 0x00
+		localMac[1] = 0x00
+		localMac[2] = 0x5E
+		localMac[3] = 0x00
+		localMac[4] = 0xFA
+		localMac[5] = 0xCE
+		var localIp: byte[4]
+		localIp[0] = 0x0A
+		localIp[1] = 0x00
+		localIp[2] = 0x00
+		localIp[3] = 0x01
+		var localPort: byte[2]
+		localPort[0] = 0x00
+		localPort[1] = 0x50
+
+		this.axi = new Axi4LiteEthernetLiteAdapter()
+		this.server = new WebApp(
+			this.axi,
+			localMac,
+			localIp,
+			localPort,
+			this.rx,
+			this.tx,
+			this.ethernet_frame_detected
+		)
+	}
+
+	@Test
+	fn StartsByPollingEthernetLiteTxControl()
+	{
+		this.axi.m_axi_awready = 0b0
+		this.axi.m_axi_wready = 0b0
+		this.axi.m_axi_bvalid = 0b0
+		this.axi.m_axi_arready = 0b0
+		this.axi.m_axi_rvalid = 0b0
+		this.rx = 0b1
+
+		var hasReadAddress = false
+
+		for (var cycle = 0; cycle < 40; cycle++)
+		{
+			if (hasReadAddress == false)
+			{
+				if (this.server.GetAxiArvalid() == 0b1)
+				{
+					assert this.server.GetAxiAraddr() == TX_PING_CONTROL
+					assert this.server.GetAxiRready() == 0b0
+					hasReadAddress = true
+				}
+			}
+
+			Simulation.Wait(1)
+		}
+
+		assert hasReadAddress == true
+	}
+}

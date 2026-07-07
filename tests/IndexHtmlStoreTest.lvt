@@ -1,0 +1,70 @@
+namespace Livt.WebApp.Tests
+
+using Livt.WebApp
+
+@Test
+component IndexHtmlStoreTest
+{
+	store: IndexHtmlStore
+
+	new()
+	{
+		this.store = new IndexHtmlStore()
+	}
+
+	// Polls IsReady() for up to 800 cycles, allowing process Main to complete.
+	fn WaitForReady()
+	{
+		var done: bool = false
+
+		for (var wait = 0; wait < 800; wait++)
+		{
+			if (done == false)
+			{
+				if (this.store.IsReady() == true)
+				{
+					done = true
+				}
+			}
+		}
+	}
+
+	@Test
+	fn ExposesLength()
+	{
+		assert this.store.GetLength() == 1377
+	}
+
+	@Test
+	fn ReadsContentBytes()
+	{
+		assert this.store.GetByte(0) == 0x3C
+		assert this.store.GetByte(1) == 0x21
+		assert this.store.GetByte(10) == 0x68
+		assert this.store.GetByte(31) == 0x61
+		assert this.store.GetByte(69) == 0x77
+		assert this.store.GetByte(145) == 0x2E
+		assert this.store.GetByte(250) == 0x3B
+		assert this.store.GetByte(500) == 0x63
+		assert this.store.GetByte(900) == 0x6C
+		assert this.store.GetByte(1376) == 0x20
+		assert this.store.GetByte(1377) == 0x00
+	}
+
+	@Test
+	fn IsReadyAfterStartup()
+	{
+		this.WaitForReady()
+
+		assert this.store.IsReady() == true
+	}
+
+	@Test
+	fn ComputesChecksumWordSum()
+	{
+		this.WaitForReady()
+
+		assert this.store.IsReady() == true
+		assert this.store.GetChecksumWordSum() == 15388016
+	}
+}

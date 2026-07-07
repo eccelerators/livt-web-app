@@ -1,0 +1,34 @@
+[project]
+name = "Livt.WebApp"
+version = "0.1.0"
+path = "src"
+outdir = "out"
+
+[tests]
+path = "tests"
+components = ["IndexHtmlStoreTest", "AboutHtmlStoreTest", "StatusHtmlStoreTest", "WebAppTest"]
+
+[dependencies]
+"Livt.IO" = "0.1.0"
+"Livt.Net" = "0.26.0"
+"Livt.Web" = "0.1.0"
+"Livt.Math" = "0.3.1"
+EthernetFrameClassifier = "0.1.0"
+
+
+[vendor.vivado]
+part = "xc7z020clg400-1"
+
+[vendor.vivado.ip]
+component = "WebApp"
+
+wrapper = "auto"
+top = "webapp_wrapper"
+vendor = "eccelerators.com"
+library = "user"
+name = "webapp"
+version = "1.0.0"
+display_name = "WebApp"
+description = "Vivado IP generated from a Livt project"
+taxonomy = "/UserIP"
+include_tests = true

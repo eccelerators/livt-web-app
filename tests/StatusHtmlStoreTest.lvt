@@ -1,0 +1,113 @@
+namespace Livt.WebApp.Tests
+
+using Livt.WebApp
+
+@Test
+component StatusHtmlStoreTest
+{
+	store: StatusHtmlStore
+
+	new()
+	{
+		this.store = new StatusHtmlStore()
+	}
+
+	fn WaitForReady()
+	{
+		var done: bool = false
+
+		for (var wait = 0; wait < 700; wait++)
+		{
+			if (done == false)
+			{
+				if (this.store.IsReady() == true)
+				{
+					done = true
+				}
+			}
+		}
+	}
+
+	@Test
+	fn ExposesLength()
+	{
+		assert this.store.GetLength() == 1388
+	}
+
+	@Test
+	fn ReadsInitialCounterBytes()
+	{
+		assert this.store.GetByte(0) == 0x3C
+		assert this.store.GetByte(10) == 0x68
+		assert this.store.GetByte(145) == 0x2E
+		assert this.store.GetByte(1141) == 0x30
+		assert this.store.GetByte(1175) == 0x30
+		assert this.store.GetByte(1212) == 0x30
+		assert this.store.GetByte(1247) == 0x30
+		assert this.store.GetByte(1287) == 0x30
+		assert this.store.GetByte(1328) == 0x30
+		assert this.store.GetByte(1387) == 0x3E
+		assert this.store.GetByte(1388) == 0x00
+	}
+
+	@Test
+	fn RendersUpdatedCounterBytes()
+	{
+		this.store.SetCounters(1, 2, 3, 4, 5, 6)
+		this.WaitForReady()
+
+		assert this.store.GetByte(1141) == 0x31
+		assert this.store.GetByte(1175) == 0x32
+		assert this.store.GetByte(1212) == 0x33
+		assert this.store.GetByte(1247) == 0x34
+		assert this.store.GetByte(1287) == 0x35
+		assert this.store.GetByte(1328) == 0x36
+	}
+
+	@Test
+	fn RendersHexCounterBytes()
+	{
+		this.store.SetCounters(10, 11, 12, 13, 14, 15)
+		this.WaitForReady()
+
+		assert this.store.GetByte(1141) == 0x41
+		assert this.store.GetByte(1175) == 0x42
+		assert this.store.GetByte(1212) == 0x43
+		assert this.store.GetByte(1247) == 0x44
+		assert this.store.GetByte(1287) == 0x45
+		assert this.store.GetByte(1328) == 0x46
+	}
+
+	@Test
+	fn ComputesInitialChecksumWordSum()
+	{
+		this.store.SetCounters(0, 0, 0, 0, 0, 0)
+		this.WaitForReady()
+
+		assert this.store.IsReady() == true
+		var checksum = this.store.GetChecksumWordSum()
+		assert checksum == 15541516
+	}
+
+	@Test
+	fn ComputesStatusDigitChecksumWordSum()
+	{
+		this.store.SetCounters(0, 0, 0, 0, 0, 6)
+		this.WaitForReady()
+
+		assert this.store.IsReady() == true
+		var checksum = this.store.GetChecksumWordSum()
+		assert checksum == 15543052
+	}
+
+	@Test
+	fn ComputesUpdatedChecksumWordSum()
+	{
+		this.store.SetCounters(1, 2, 3, 4, 5, 6)
+		this.WaitForReady()
+
+		assert this.store.IsReady() == true
+		var checksum = this.store.GetChecksumWordSum()
+		assert checksum == 15543832
+	}
+}
