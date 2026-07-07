@@ -1,7 +1,7 @@
 # Livt.WebApp
 
 `Livt.WebApp` is a small FPGA web-application showcase built with the
-[Livt](https://livt.io) hardware programming language. It wires reusable
+[Livt](https://eccelerators.com/livt) hardware programming language. It wires reusable
 networking and HTTP components into one top-level application that can receive
 Ethernet frames, serve static HTML routes, report simple runtime counters over a
 status page, and emit UART diagnostics.
