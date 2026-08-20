@@ -9,7 +9,7 @@ path = "tests"
 components = ["IndexHtmlStoreTest", "AboutHtmlStoreTest", "StatusHtmlStoreTest", "WebAppTest"]
 
 [dependencies]
-"Livt.IO" = "0.1.0"
+"Livt.IO" = "0.2.0"
 "Livt.Net" = "0.26.0"
 "Livt.Web" = "0.1.0"
 "Livt.Math" = "0.3.1"

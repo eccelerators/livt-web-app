@@ -32,13 +32,13 @@ component AboutHtmlStoreTest
 		assert this.store.GetByte(0) == 0x3C
 		assert this.store.GetByte(1) == 0x21
 		assert this.store.GetByte(10) == 0x68
-		assert this.store.GetByte(31) == 0x61
-		assert this.store.GetByte(69) == 0x77
-		assert this.store.GetByte(145) == 0x2E
-		assert this.store.GetByte(250) == 0x3B
-		assert this.store.GetByte(500) == 0x63
-		assert this.store.GetByte(900) == 0x6C
-		assert this.store.GetByte(1320) == 0x20
+		assert this.store.GetByte(31) == 0x09
+		assert this.store.GetByte(69) == 0x65
+		assert this.store.GetByte(145) == 0x73
+		assert this.store.GetByte(250) == 0x63
+		assert this.store.GetByte(500) == 0x65
+		assert this.store.GetByte(900) == 0x6D
+		assert this.store.GetByte(1320) == 0x42
 		assert this.store.GetByte(1321) == 0x00
 	}
 
@@ -48,7 +48,7 @@ component AboutHtmlStoreTest
 		this.WaitForReady()
 
 		assert this.store.IsReady() == true
-		assert this.store.GetChecksumWordSum() == 14685266
+		assert this.store.GetChecksumWordSum() == 13797089
 	}
 
 	// Polls IsReady() for up to 800 cycles, allowing process Main to complete.
