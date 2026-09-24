@@ -6,29 +6,33 @@ outdir = "out"
 
 [tests]
 path = "tests"
-components = ["IndexHtmlStoreTest", "AboutHtmlStoreTest", "StatusHtmlStoreTest", "WebAppTest"]
+components = [
+    "IndexHtmlStoreTest",
+    "AboutHtmlStoreTest",
+    "StatusHtmlStoreTest",
+    "WebAppTest",
+    "WebApplicationTest",
+    "WebContentTest"
+]
 
 [dependencies]
-"Livt.IO" = "0.2.0"
-"Livt.Net" = "0.26.0"
-"Livt.Web" = "0.1.0"
-"Livt.Math" = "0.3.1"
-EthernetFrameClassifier = "0.1.0"
-
+"Livt.IO" = "1.2.0-dev"
+"Livt.Net" = "1.1.0-dev"
+"Livt.Web" = "1.0.0-dev"
+"Livt.Base" = "1.1.0"
 
 [vendor.vivado]
-part = "xc7z020clg400-1"
+part = "xc7a100tcsg324-1"
 
 [vendor.vivado.ip]
 component = "WebApp"
-
-wrapper = "auto"
+wrapper = "board/webapp_wrapper.vhd"
 top = "webapp_wrapper"
 vendor = "eccelerators.com"
-library = "user"
+library = "samples"
 name = "webapp"
-version = "1.0.0"
+version = "1.0"
 display_name = "WebApp"
 description = "Vivado IP generated from a Livt project"
 taxonomy = "/UserIP"
-include_tests = true
+include_tests = false

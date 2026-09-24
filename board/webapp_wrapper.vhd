@@ -3,7 +3,7 @@ library ieee;
 	use ieee.numeric_std.all;
 library work;
 	use work.livt_lang_package.all;
-	use work.livt_net_iaxi4liteethernetlitemaster_package.all;
+	use work.livt_net_drivers_ethernetlite_iaxi4liteethernetlitemaster_package.all;
 
 entity webapp_wrapper is
 	generic (
@@ -35,6 +35,33 @@ entity webapp_wrapper is
 		UartTx: out std_logic;
 		EthernetFrameDetected: out std_logic
 	);
+    attribute X_INTERFACE_INFO : string;
+    attribute X_INTERFACE_PARAMETER : string;
+    attribute X_INTERFACE_INFO of M_AXI_AWREADY : signal is "xilinx.com:interface:aximm:1.0 M_AXI AWREADY";
+    attribute X_INTERFACE_INFO of M_AXI_WREADY : signal is "xilinx.com:interface:aximm:1.0 M_AXI WREADY";
+    attribute X_INTERFACE_INFO of M_AXI_BRESP : signal is "xilinx.com:interface:aximm:1.0 M_AXI BRESP";
+    attribute X_INTERFACE_INFO of M_AXI_BVALID : signal is "xilinx.com:interface:aximm:1.0 M_AXI BVALID";
+    attribute X_INTERFACE_INFO of M_AXI_ARREADY : signal is "xilinx.com:interface:aximm:1.0 M_AXI ARREADY";
+    attribute X_INTERFACE_INFO of M_AXI_RDATA : signal is "xilinx.com:interface:aximm:1.0 M_AXI RDATA";
+    attribute X_INTERFACE_INFO of M_AXI_RRESP : signal is "xilinx.com:interface:aximm:1.0 M_AXI RRESP";
+    attribute X_INTERFACE_INFO of M_AXI_RVALID : signal is "xilinx.com:interface:aximm:1.0 M_AXI RVALID";
+    attribute X_INTERFACE_INFO of M_AXI_AWADDR : signal is "xilinx.com:interface:aximm:1.0 M_AXI AWADDR";
+    attribute X_INTERFACE_INFO of M_AXI_AWVALID : signal is "xilinx.com:interface:aximm:1.0 M_AXI AWVALID";
+    attribute X_INTERFACE_INFO of M_AXI_WDATA : signal is "xilinx.com:interface:aximm:1.0 M_AXI WDATA";
+    attribute X_INTERFACE_INFO of M_AXI_WSTRB : signal is "xilinx.com:interface:aximm:1.0 M_AXI WSTRB";
+    attribute X_INTERFACE_INFO of M_AXI_WVALID : signal is "xilinx.com:interface:aximm:1.0 M_AXI WVALID";
+    attribute X_INTERFACE_INFO of M_AXI_BREADY : signal is "xilinx.com:interface:aximm:1.0 M_AXI BREADY";
+    attribute X_INTERFACE_INFO of M_AXI_ARADDR : signal is "xilinx.com:interface:aximm:1.0 M_AXI ARADDR";
+    attribute X_INTERFACE_INFO of M_AXI_ARVALID : signal is "xilinx.com:interface:aximm:1.0 M_AXI ARVALID";
+    attribute X_INTERFACE_INFO of M_AXI_RREADY : signal is "xilinx.com:interface:aximm:1.0 M_AXI RREADY";
+    attribute X_INTERFACE_PARAMETER of M_AXI_AWADDR : signal is
+        "XIL_INTERFACENAME M_AXI, PROTOCOL AXI4LITE, ADDR_WIDTH 13, DATA_WIDTH 32, READ_WRITE_MODE READ_WRITE";
+    attribute X_INTERFACE_INFO of Clk : signal is "xilinx.com:signal:clock:1.0 Clk CLK";
+    attribute X_INTERFACE_PARAMETER of Clk : signal is
+        "XIL_INTERFACENAME Clk, ASSOCIATED_BUSIF M_AXI, ASSOCIATED_RESET nRst, FREQ_HZ 100000000";
+    attribute X_INTERFACE_INFO of nRst : signal is "xilinx.com:signal:reset:1.0 nRst RST";
+    attribute X_INTERFACE_PARAMETER of nRst : signal is "XIL_INTERFACENAME nRst, POLARITY ACTIVE_LOW";
+
 end;
 
 architecture behavioural of webapp_wrapper is
@@ -145,7 +172,10 @@ begin
 
 	webapp_i : entity work.livt_webapp_webapp
 		port map (
-			ctor_lvt_context_in          => (clk => Clk, rst => Rst),
+			ctor_lvt_context_in          => (clk => Clk, rst => Rst,
+                tickspersecond => to_unsigned(100000000, 32),
+                periodns => to_unsigned(10, 32),
+                hightimens => to_unsigned(5, 32), lowtimens => to_unsigned(5, 32)),
 			ctor_axi_in                  => (
 				m_axi_awready => M_AXI_AWREADY,
 				m_axi_wready  => M_AXI_WREADY,
@@ -168,28 +198,7 @@ begin
 				std_logic_vector(LocalPortU16(7 downto 0))),
 			ctor_ethernet_frame_detected => EthernetFrameDetected,
 			ctor_uart_rx                 => UartRx,
-			ctor_uart_tx                 => UartTx,
-			-- AXI delegation public functions -- not used by wrapper
-			getaxiarvalid_in             => (run => '0'),
-			getaxiarvalid_out            => open,
-			getaxiaraddr_in              => (run => '0'),
-			getaxiaraddr_out             => open,
-			getaxirready_in              => (run => '0'),
-			getaxirready_out             => open,
-			getaxiawvalid_in             => (run => '0'),
-			getaxiawvalid_out            => open,
-			getaxiawaddr_in              => (run => '0'),
-			getaxiawaddr_out             => open,
-			getaxiwvalid_in              => (run => '0'),
-			getaxiwvalid_out             => open,
-			getaxiwdata_in               => (run => '0'),
-			getaxiwdata_out              => open,
-			getaxiwstrb_in               => (run => '0'),
-			getaxiwstrb_out              => open,
-			getaxibready_in              => (run => '0'),
-			getaxibready_out             => open,
-			getaxirvalid_in              => (run => '0'),
-			getaxirvalid_out             => open
+			ctor_uart_tx                 => UartTx
 		);
 
 end;

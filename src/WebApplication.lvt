@@ -1,0 +1,273 @@
+namespace Livt.WebApp
+
+using Livt.IO
+using Livt.Net
+using Livt.Web.Http
+
+/**
+ * Web demo logic over frame-link capabilities, with no bus or device dependency.
+ * One process owns RX acquisition, prepared response storage and TX completion.
+ */
+component WebApplication<R: IFrameReceiver, T: IFrameTransmitter>
+{
+	const RX_FRAME_SIZE: int = 128
+
+	// Owned UART and independent RX/TX capabilities supplied by the board root.
+	uart: IBufferedUart
+
+	receiver: R
+	transmitter: T
+
+	// Borrowed response storage, retained from preparation through terminal completion.
+	responseData: RamPacketData<1514>
+	transfer: ResponseTransfer<T>
+
+	// Owned protocol endpoint and application-specific content providers.
+	endpoint: NetworkEndpoint<WebContent>
+	content: WebContent
+
+	fileStore: IndexHtmlStore
+
+	aboutStore: AboutHtmlStore
+
+	statusStore: StatusHtmlStore
+
+	bannerSent: bool
+
+	initialized: bool
+
+	// Demo counters used to build the status page.
+	arpCount: int
+
+	icmpCount: int
+
+	synCount: int
+
+	rootCount: int
+
+	aboutCount: int
+
+	statusCount: int
+
+	ethernet_frame_detected: logic
+
+	/**
+	 * Borrows frame capabilities and response RAM, and creates the endpoint,
+	 * content providers and UART in the same coordinated clock/reset domain.
+	 */
+	new(
+		receiver: R,
+		transmitter: T,
+
+	// Borrowed response storage, retained from preparation through terminal completion.
+		responseData: RamPacketData<1514>,
+		local_mac: in byte[6],
+		local_ip: in byte[4],
+		local_port: in byte[2],
+		uart_rx: in logic,
+		uart_tx: out logic,
+		ethernet_frame_detected: out logic
+		)
+	{
+		this.receiver = receiver
+		this.transmitter = transmitter
+		this.transfer = new ResponseTransfer<T>(transmitter)
+		this.responseData = responseData
+		this.fileStore = new IndexHtmlStore()
+		this.aboutStore = new AboutHtmlStore()
+		this.statusStore = new StatusHtmlStore()
+		this.content = new WebContent(this.fileStore, this.aboutStore, this.statusStore)
+		this.endpoint = new NetworkEndpoint<WebContent>(this.content, local_mac, local_ip, local_port)
+		this.uart = new BufferedUart<64, 128>(uart_rx, uart_tx)
+
+		ethernet_frame_detected = this.ethernet_frame_detected
+	}
+
+	/**
+	 * Serializes receive acquisition, response preparation and terminal TX cleanup.
+	 * A response publication remains stable while submission is paused or borrowed.
+	 */
+	process Main()
+	{
+		this.ethernet_frame_detected = 0b0
+
+		if (this.bannerSent == false) {
+			var banner = "Eccelerators GmbH\r\nFPGA Conference 2026\r\n".Encode()
+			this.SendLog(banner)
+			this.bannerSent = true
+		}
+
+		if (this.fileStore.IsReady() == false ||
+			this.aboutStore.IsReady() == false ||
+			this.statusStore.IsReady() == false)
+		{
+			continue
+		}
+
+		if (this.initialized == false) {
+			this.endpoint.SetRoutePath(1, 1)
+
+			this.endpoint.SetRoutePath(2, 2)
+
+			this.endpoint.SetRoutePath(3, 3)
+
+			this.initialized = true
+		}
+
+		// The shared coordinator retains prepared storage through admission and TX.
+
+		if (this.transfer.GetState() != ResponseTransferState.Idle) {
+
+			if (this.transfer.Poll() != ResponseTransferState.Completed) {
+				continue
+			}
+
+			this.responseData.TryRelease()
+			this.transfer.TryAcknowledgeCompletion()
+			continue
+		}
+
+		if (this.receiver.TryAcquire() != FrameLinkResult.Success) {
+			continue
+		}
+
+		this.ethernet_frame_detected = 0b1
+		this.endpoint.BeginFrame()
+
+		var captured = this.receiver.GetAvailableLength()
+		var copied = true
+
+		for (var i = 0; i < captured && i < RX_FRAME_SIZE; i++) {
+			var rxByte: byte = 0x00
+
+			if (this.receiver.TryRead(i, rxByte) != PacketDataResult.Success) {
+				copied = false;
+				break
+			}
+
+			this.endpoint.LoadRxByte(i, rxByte)
+		}
+
+		this.receiver.TryRelease()
+
+		if (!copied) {
+			this.endpoint.BeginFrame();
+			continue
+		}
+
+		this.endpoint.HandleFrame()
+
+		if (this.endpoint.AcceptedHttpRequest() == true) {
+			var httpLog = "GET /\r\n".Encode()
+			this.SendLog(httpLog)
+		}
+
+		if (this.endpoint.AcceptedRoute(2) == true) {
+			var aboutLog = "GET /about\r\n".Encode()
+			this.SendLog(aboutLog)
+		}
+
+		if (this.endpoint.AcceptedRoute(3) == true) {
+			var statusLog = "GET /status\r\n".Encode()
+			this.SendLog(statusLog)
+		}
+
+		if (this.endpoint.HasResponse() == true) {
+			var responseLength = this.endpoint.GetResponseLength()
+
+			if (responseLength < this.transmitter.GetMinimumFrameLength() ||
+				responseLength > this.transmitter.GetMaximumFrameLength() || responseLength > 1514) {
+				continue
+			}
+
+			this.responseData.TryClear()
+
+			for (var i = 0; i < responseLength; i++) {
+				var responseByte: byte = 0x00
+
+				if (this.endpoint.TryReadResponse(i, responseByte) != PacketDataResult.Success) {
+					break
+				}
+
+				if (this.responseData.TryWrite(i, responseByte as byte) != PacketDataResult.Success) {
+					break
+				}
+			}
+
+			if (this.responseData.GetWrittenLength() != responseLength) {
+				this.responseData.TryClear();
+				continue
+			}
+
+			this.responseData.TryPublish()
+			this.transfer.TryBegin()
+		}
+
+		if (this.endpoint.SawArpRequest() == true) {
+			this.arpCount = this.arpCount + 1
+
+			if (this.arpCount > 15) {
+				this.arpCount = 0
+			}
+		}
+
+		if (this.endpoint.SawIcmpEcho() == true) {
+			this.icmpCount = this.icmpCount + 1
+
+			if (this.icmpCount > 15) {
+				this.icmpCount = 0
+			}
+		}
+
+		if (this.endpoint.SawSynRequest() == true) {
+			this.synCount = this.synCount + 1
+
+			if (this.synCount > 15) {
+				this.synCount = 0
+			}
+		}
+
+		if (this.endpoint.AcceptedHttpRequest() == true) {
+			this.rootCount = this.rootCount + 1
+
+			if (this.rootCount > 15) {
+				this.rootCount = 0
+			}
+		}
+
+		if (this.endpoint.AcceptedRoute(2) == true) {
+			this.aboutCount = this.aboutCount + 1
+
+			if (this.aboutCount > 15) {
+				this.aboutCount = 0
+			}
+		}
+
+		if (this.endpoint.AcceptedRoute(3) == true) {
+			this.statusCount = this.statusCount + 1
+
+			if (this.statusCount > 15) {
+				this.statusCount = 0
+			}
+		}
+
+		this.endpoint.BeginFrame()
+		this.statusStore.SetCounters(this.arpCount, this.icmpCount, this.synCount, this.rootCount, this.aboutCount, this.statusCount)
+	}
+
+	/**
+	 * Main is the only producer; skip whole log chunks when the FIFO is full.
+	 */
+	fn SendLog(data: byte[])
+	{
+		if (this.uart.GetTransmitSpace() < data.Length()) {
+			return
+		}
+
+		var accepted = this.uart.Send(data)
+
+		if (accepted != data.Length()) {
+			return
+		}
+	}
+}

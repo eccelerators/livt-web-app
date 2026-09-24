@@ -1,0 +1,101 @@
+namespace Livt.WebApp.Tests
+
+using Livt.Net
+using Livt.WebApp
+
+/**
+ * Runs the application through frame capabilities without AXI or an EthernetLite model.
+ */
+@Test
+component WebApplicationTest
+{
+	receiver: TestFrameReceiver<128>
+	response: RamPacketData<1514>
+	transmitter: TestFrameTransmitter<RamPacketData<1514>>
+	application: WebApplication<TestFrameReceiver<128>, TestFrameTransmitter<RamPacketData<1514>>>
+	rx: logic
+	tx: logic
+	detected: logic
+
+	/**
+	 * Supplies a test link and the same prepared RAM source used by the board root.
+	 */
+	new()
+	{
+		this.receiver = new TestFrameReceiver<128>()
+		this.response = new RamPacketData<1514>()
+		this.transmitter = new TestFrameTransmitter<RamPacketData<1514>>(this.response)
+		var mac: byte[6] = [0x00, 0x00, 0x5E, 0x00, 0xFA, 0xCE]
+		var ip: byte[4] = [0x0A, 0x00, 0x00, 0x01]
+		var port: byte[2] = [0x00, 0x50]
+		this.rx = 0b1
+		this.application = new WebApplication<TestFrameReceiver<128>, TestFrameTransmitter<RamPacketData<1514>>>(
+			this.receiver, this.transmitter, this.response, mac, ip, port, this.rx, this.tx, this.detected)
+	}
+
+	/**
+	 * Checks the complete ARP reply and holds prepared storage through TX backpressure.
+	 */
+	@Test
+	fn ServesArpThroughCapabilitiesAndReleasesOnlyAfterCompletion()
+	{
+		var request: byte[60] = [
+			0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x02,0x10,0x20,0x30,0x40,0x50,0x08,0x06,
+			0x00,0x01,0x08,0x00,0x06,0x04,0x00,0x01,0x02,0x10,0x20,0x30,0x40,0x50,
+			0x0A,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x00,0x00,0x0A,0x00,0x00,0x01,
+			0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+			0x00,0x00,0x00,0x00]
+		var expected: byte[60] = [
+			0x02,0x10,0x20,0x30,0x40,0x50,0x00,0x00,0x5E,0x00,0xFA,0xCE,0x08,0x06,
+			0x00,0x01,0x08,0x00,0x06,0x04,0x00,0x02,0x00,0x00,0x5E,0x00,0xFA,0xCE,
+			0x0A,0x00,0x00,0x01,0x02,0x10,0x20,0x30,0x40,0x50,0x0A,0x00,0x00,0x02,
+			0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+			0x00,0x00,0x00,0x00]
+
+		for (var i = 0; i < 60; i++) {
+			assert this.receiver.InjectByte(i, request[i]) == FrameLinkResult.Success
+		}
+
+		assert this.receiver.Publish(false, 0) == FrameLinkResult.Success
+		var borrowed = false
+
+		for (var i = 0; i < 50000; i++) {
+			borrowed = this.transmitter.IsSourceBorrowed()
+
+			if (borrowed) {
+				break
+			}
+		}
+
+		assert borrowed
+		assert !this.receiver.HasReceiveFrame()
+		assert this.response.IsReady()
+		assert this.response.GetAvailableLength() == 60
+		Simulation.Wait(100)
+		assert this.transmitter.IsSourceBorrowed()
+
+		for (var i = 0; i <= 60; i++) {
+			this.transmitter.Advance()
+		}
+
+		var value: byte = 0x00
+
+		for (var i = 0; i < 60; i++) {
+			assert this.transmitter.TryReadCaptured(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+
+		var released = false
+
+		for (var i = 0; i < 1000; i++) {
+			released = !this.response.IsReady()
+
+			if (released) {
+				break
+			}
+		}
+
+		assert released
+		assert !this.transmitter.IsSourceBorrowed()
+	}
+}

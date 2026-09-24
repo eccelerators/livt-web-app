@@ -1,6 +1,7 @@
 namespace Livt.WebApp.Tests
 
 using Livt.Net
+using Livt.Net.Drivers.EthernetLite
 using Livt.WebApp
 
 @Test
@@ -60,10 +61,10 @@ component WebAppTest
 		{
 			if (hasReadAddress == false)
 			{
-				if (this.server.GetAxiArvalid() == 0b1)
+				if (this.axi.m_axi_arvalid == 0b1)
 				{
-					assert this.server.GetAxiAraddr() == TX_PING_CONTROL
-					assert this.server.GetAxiRready() == 0b0
+					assert this.axi.m_axi_araddr == TX_PING_CONTROL
+					assert this.axi.m_axi_rready == 0b0
 					hasReadAddress = true
 				}
 			}

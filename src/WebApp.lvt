@@ -1,63 +1,26 @@
 namespace Livt.WebApp
 
-using Livt.IO
 using Livt.Net
-using Livt.Web.Http
+using Livt.Net.Drivers.EthernetLite
 
-using EthernetFrameClassifier
-
+/**
+ * Board composition root for the Web demo. Concrete EthernetLite wiring stays
+ * here; WebApplication owns protocol work through frame-link capabilities.
+ * Driver, storage, application and external MAC require coordinated reset.
+ */
 component WebApp
 {
-	const RX_FRAME_SIZE: int = 128
+	// Independently constructed storage avoids RX/response/TX constructor cycles.
+	receiver: EthernetLiteReceiver<128>
+	responseData: RamPacketData<1514>
+	transmitter: EthernetLiteTransmitter<RamPacketData<1514>>
+	bus: EthernetLiteBus
+	driver: EthernetLiteDriver<EthernetLiteBus, RamPacketData<1514>>
+	application: WebApplication<EthernetLiteReceiver<128>, EthernetLiteTransmitter<RamPacketData<1514>>>
 
-	const MAX_CLASSIFICATION_LINE_BYTES: int = 45
-
-	uart: Uart
-
-	frameIo: EthernetFrameIo
-
-	endpoint: NetworkEndpoint
-
-	fileStore: IndexHtmlStore
-
-	aboutStore: AboutHtmlStore
-
-	statusStore: StatusHtmlStore
-
-	bannerSent: bool
-
-	initialized: bool
-
-	txFrameSubmitted: bool
-
-	arpCount: int
-
-	icmpCount: int
-
-	synCount: int
-
-	rootCount: int
-
-	aboutCount: int
-
-	statusCount: int
-
-	ethernet_frame_detected: logic
-
-	frame: byte[128]
-
-	lastRuleClass: int
-
-	lastLinearClass: int
-
-	lastFfnClass: int
-
-	ruleClassifier: EthernetFrameRuleClassifier
-
-	linearClassifier: EthernetFrameLinearClassifier
-
-	ffnClassifier: EthernetFrameFFNClassifier
-
+	/**
+	 * Binds board signals/configuration and constructs the device-independent application.
+	 */
 	new(
 		axi: IAxi4LiteEthernetLiteMaster,
 		local_mac: in byte[6],
@@ -66,266 +29,15 @@ component WebApp
 		uart_rx: in logic,
 		uart_tx: out logic,
 		ethernet_frame_detected: out logic
-	) {
-		this.frameIo = new EthernetFrameIo(axi, local_mac)
-		this.fileStore = new IndexHtmlStore()
-		this.aboutStore = new AboutHtmlStore()
-		this.statusStore = new StatusHtmlStore()
-		this.endpoint = new NetworkEndpoint(local_mac, local_ip, local_port)
-		this.uart = new Uart(uart_rx, uart_tx)
-
-		ruleClassifier = new EthernetFrameRuleClassifier()
-		linearClassifier = new EthernetFrameLinearClassifier()
-		ffnClassifier = new EthernetFrameFFNClassifier()
-		lastRuleClass = IEthernetFrameClassifier.CLASS_ERRONEOUS
-		lastLinearClass = IEthernetFrameClassifier.CLASS_ERRONEOUS
-		lastFfnClass = IEthernetFrameClassifier.CLASS_ERRONEOUS
-
-		ethernet_frame_detected = this.ethernet_frame_detected
-	}
-
-	process Main()
+	)
 	{
-		this.ethernet_frame_detected = 0b0
-
-		if (this.bannerSent == false)
-		{
-			var banner = "Eccelerators GmbH\r\nFPGA Conference 2026\r\n".Encode()
-			this.uart.Send(banner)
-			this.bannerSent = true
-		}
-
-		if (this.fileStore.IsReady() == false ||
-			this.aboutStore.IsReady() == false ||
-			this.statusStore.IsReady() == false)
-		{
-			continue
-		}
-
-		if (this.initialized == false)
-		{
-			var bodyLength = this.fileStore.GetLength()
-			var bodyChecksum = this.fileStore.GetChecksumWordSum()
-			var aboutLength = this.aboutStore.GetLength()
-			var aboutChecksum = this.aboutStore.GetChecksumWordSum()
-			var statusLength = this.statusStore.GetLength()
-			var statusChecksum = this.statusStore.GetChecksumWordSum()
-
-			this.endpoint.SetBodyConfig(1, bodyLength, bodyChecksum)
-			this.endpoint.SetRoutePath(1, 1)
-			this.endpoint.SetBodyConfig(2, aboutLength, aboutChecksum)
-			this.endpoint.SetRoutePath(2, 2)
-			this.endpoint.SetBodyConfig(3, statusLength, statusChecksum)
-			this.endpoint.SetRoutePath(3, 3)
-
-			this.initialized = true
-		}
-
-		if (this.frameIo.IsFrameAvailable() == false)
-		{
-			continue
-		}
-
-		this.ethernet_frame_detected = 0b1
-		this.endpoint.BeginFrame()
-
-		var currentStatusLength = this.statusStore.GetLength()
-		var currentStatusChecksum = this.statusStore.GetChecksumWordSum()
-		this.endpoint.SetBodyConfig(3, currentStatusLength, currentStatusChecksum)
-
-		for (var i = 0; i < RX_FRAME_SIZE; i++)
-		{
-			var rxByte = this.frameIo.GetRxByte(i)
-			frame[i] = rxByte
-			this.endpoint.LoadRxByte(i, rxByte)
-		}
-
-		ruleClassifier.Classify(frame, RX_FRAME_SIZE)
-		linearClassifier.Classify(frame, RX_FRAME_SIZE)
-		ffnClassifier.Classify(frame, RX_FRAME_SIZE)
-		lastRuleClass = ruleClassifier.GetClass()
-		lastLinearClass = linearClassifier.GetClass()
-		lastFfnClass = ffnClassifier.GetClass()
-
-		SendClassificationLine(lastRuleClass, lastLinearClass, lastFfnClass)
-
-		this.frameIo.ConsumeRxFrame()
-		this.endpoint.HandleFrame()
-
-		if (this.endpoint.AcceptedHttpRequest() == true)
-		{
-			var httpLog = "GET /\r\n".Encode()
-			this.uart.Send(httpLog)
-		}
-
-		if (this.endpoint.AcceptedRoute(2) == true)
-		{
-			var aboutLog = "GET /about\r\n".Encode()
-			this.uart.Send(aboutLog)
-		}
-
-		if (this.endpoint.AcceptedRoute(3) == true)
-		{
-			var statusLog = "GET /status\r\n".Encode()
-			this.uart.Send(statusLog)
-		}
-
-		if (this.endpoint.HasResponse() == true && this.txFrameSubmitted == false)
-		{
-			var responseLength = this.endpoint.GetResponseLength()
-			this.frameIo.BeginTxFrame(responseLength)
-
-			for (var i = 0; i < responseLength; i++)
-			{
-				var httpBodyByte: logic[8] = 0x00
-
-				if (this.endpoint.IsHttpBodyFrameIndex(i) == true)
-				{
-					var bodyIndex = this.endpoint.GetHttpBodyIndex(i)
-					if (this.endpoint.AcceptedRoute(2) == true)
-					{
-						httpBodyByte = this.aboutStore.GetByte(bodyIndex)
-					}
-
-					if (this.endpoint.AcceptedRoute(3) == true)
-					{
-						httpBodyByte = this.statusStore.GetByte(bodyIndex)
-					}
-
-					if (this.endpoint.AcceptedRoute(2) == false && this.endpoint.AcceptedRoute(3) == false)
-					{
-						httpBodyByte = this.fileStore.GetByte(bodyIndex)
-					}
-				}
-
-				var responseByte = this.endpoint.GetResponseByte(i, httpBodyByte)
-				this.frameIo.WriteTxByte(i, responseByte)
-			}
-
-			this.frameIo.SubmitTxFrame()
-			this.txFrameSubmitted = true
-		}
-
-		if (this.endpoint.SawArpRequest() == true)
-		{
-			this.arpCount = this.arpCount + 1
-			if (this.arpCount > 15)
-			{
-				this.arpCount = 0
-			}
-		}
-
-		if (this.endpoint.SawIcmpEcho() == true)
-		{
-			this.icmpCount = this.icmpCount + 1
-			if (this.icmpCount > 15)
-			{
-				this.icmpCount = 0
-			}
-		}
-
-		if (this.endpoint.SawSynRequest() == true)
-		{
-			this.synCount = this.synCount + 1
-			if (this.synCount > 15)
-			{
-				this.synCount = 0
-			}
-		}
-
-		if (this.endpoint.AcceptedHttpRequest() == true)
-		{
-			this.rootCount = this.rootCount + 1
-			if (this.rootCount > 15)
-			{
-				this.rootCount = 0
-			}
-		}
-
-		if (this.endpoint.AcceptedRoute(2) == true)
-		{
-			this.aboutCount = this.aboutCount + 1
-			if (this.aboutCount > 15)
-			{
-				this.aboutCount = 0
-			}
-		}
-
-		if (this.endpoint.AcceptedRoute(3) == true)
-		{
-			this.statusCount = this.statusCount + 1
-			if (this.statusCount > 15)
-			{
-				this.statusCount = 0
-			}
-		}
-
-		this.statusStore.SetCounters(this.arpCount, this.icmpCount, this.synCount, this.rootCount, this.aboutCount, this.statusCount)
-
-		if (this.frameIo.HasSentFrameToAxi() == true)
-		{
-			this.txFrameSubmitted = false
-		}
+		this.receiver = new EthernetLiteReceiver<128>()
+		this.responseData = new RamPacketData<1514>()
+		this.transmitter = new EthernetLiteTransmitter<RamPacketData<1514>>(this.responseData)
+		this.bus = new EthernetLiteBus(axi)
+		this.driver = new EthernetLiteDriver<EthernetLiteBus, RamPacketData<1514>>(this.bus, this.receiver, this.transmitter, local_mac)
+		this.application = new WebApplication<EthernetLiteReceiver<128>, EthernetLiteTransmitter<RamPacketData<1514>>>(
+			this.receiver, this.transmitter, this.responseData, local_mac, local_ip, local_port,
+			uart_rx, uart_tx, ethernet_frame_detected)
 	}
-
-	fn SendClassificationLine(ruleClass: int, linearClass: int, ffnClass: int)
-	{
-		if (this.uart.GetTransmitSpace() < MAX_CLASSIFICATION_LINE_BYTES)
-		{
-			return
-		}
-
-		var rulePrefix = "RULE=".Encode()
-		this.uart.Send(rulePrefix)
-		this.SendClassName(ruleClass)
-
-		var linearPrefix = " LINEAR=".Encode()
-		this.uart.Send(linearPrefix)
-		this.SendClassName(linearClass)
-		
-		var ffnPrefix = " FFN=".Encode()
-		this.uart.Send(ffnPrefix)
-		this.SendClassName(ffnClass)
-
-		this.uart.Transmit(0x0D)
-		this.uart.Transmit(0x0A)
-	}
-
-	fn SendClassName(classId: int)
-	{
-		if (classId == IEthernetFrameClassifier.CLASS_CORRECT)
-		{
-			var correct = "CLASS_CORRECT".Encode()
-			this.uart.Send(correct)
-			return
-		}
-
-		if (classId == IEthernetFrameClassifier.CLASS_ERRONEOUS)
-		{
-			var erroneous = "CLASS_ERRONEOUS".Encode()
-			this.uart.Send(erroneous)
-			return
-		}
-
-		if (classId == IEthernetFrameClassifier.CLASS_MALICIOUS)
-		{
-			var malicious = "CLASS_MALICIOUS".Encode()
-			this.uart.Send(malicious)
-			return
-		}
-
-		var unknown = "CLASS_UNKNOWN".Encode()
-		this.uart.Send(unknown)
-	}
-
-	public fn GetAxiArvalid() logic { return this.frameIo.GetAxiArvalid() }
-	public fn GetAxiAraddr() logic[13] { return this.frameIo.GetAxiAraddr() }
-	public fn GetAxiRready() logic { return this.frameIo.GetAxiRready() }
-	public fn GetAxiAwvalid() logic { return this.frameIo.GetAxiAwvalid() }
-	public fn GetAxiAwaddr() logic[13] { return this.frameIo.GetAxiAwaddr() }
-	public fn GetAxiWvalid() logic { return this.frameIo.GetAxiWvalid() }
-	public fn GetAxiWdata() logic[32] { return this.frameIo.GetAxiWdata() }
-	public fn GetAxiWstrb() logic[4] { return this.frameIo.GetAxiWstrb() }
-	public fn GetAxiBready() logic { return this.frameIo.GetAxiBready() }
-	public fn GetAxiRvalid() logic { return this.frameIo.GetAxiRvalid() }
 }
