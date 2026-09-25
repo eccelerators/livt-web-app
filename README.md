@@ -20,48 +20,43 @@ Livt.WebApp = "0.1.0"
 
 `Livt.WebApp` depends on:
 
-- `Livt.Web 0.1.0` for HTTP endpoint dispatch and response framing.
+- `Livt.Web 1.0.0-dev` for HTTP endpoint dispatch and response framing.
 - `Livt.Net 1.1.0-dev` for Ethernet, ARP, IPv4, ICMP, TCP, checksum, frame I/O,
   and AXI EthernetLite boundary components.
 - `Livt.IO 1.2.0-dev` for UART and memory primitives used directly by the
   application.
 
-The development manifest uses sibling checkouts for IO, Net, Web, and Base.
-Base 1.1.0 replaces the older transitive package whose `match` variable conflicts
-with the current language keyword. Keep these checkouts beside this project;
-publishing requires replacing
-the development paths with verified package versions.
-The packaging command refreshes local path checksum entries before building
-because CLI issue #500 hashes generated output and Git metadata along with source.
-Registry checksums and version pins remain intact; local source changes must be
-tracked through the sibling checkouts. Ordinary CLI builds can still encounter
-#500 after a sibling checkout changes.
+The manifest resolves Net 1.1.0-dev, Web 1.0.0-dev, IO 1.2.0-dev and Base 1.1.0
+from the package registry. Run `livt sync` to install the locked dependencies.
 
 ## UART and frame ownership
 
 The application uses `IBufferedUart` backed by `BufferedUart<64, 128>` at the
 default 115200 baud, 8 data bits, no parity, and one stop bit. Main is the sole
 transmit producer. Logging checks free capacity before enqueueing a whole message
-and checks the accepted byte count; saturated logging is best effort and does not
+; saturated logging is best effort and does not
 wait for physical transmission.
 
-`WebContent` adapts the application stores to `IHttpContent`. The endpoint
-selects one stable body, prepares checksums from its bytes, and emits through
-checked reads. WebApplication finishes the response copy and releases those
-views before updating status counters. No body checksum promise or per-byte
-body injection is required by the endpoint.
+`WebRoutes<R>` declares GET routes using `HttpPath`, `Route`, `RouteChain` and
+`StaticContent`. Each HTML store implements `IPacketData`; `/status` exposes six
+mutable counter digits. Main updates them only after response readers stop,
+so a selected body remains stable through checksum preparation and emission.
+The stores no longer calculate or promise transport checksum sums.
 
-`WebApplication<R, T>` consumes frame-link capabilities. Livt.Net
-`ResponseTransfer<T>` coordinates admission and retained completion; the
-application keeps response RAM published throughout that lifecycle. It acquires
-and copies only the captured prefix, then releases RX. Prepared replies live in a published
-RAM provider. TX admission borrows that publication until a terminal completion;
-backpressure and error handling never permit premature source reuse.
+`WebApplication<R, T>` binds `HttpServer` directly to the acquired receiver,
+sharing one Ethernet/IPv4/TCP/request parser graph. There is no second RX copy.
+The board receiver captures up to 1514 bytes; HTTP parsing is bounded to 1024
+bytes and requires a complete request/header terminator in one TCP segment.
 
-`WebApp` is the board composition root: it constructs the concrete EthernetLite
+`ResponseTransfer<T>` retains the prepared response RAM through TX admission,
+backpressure and terminal completion. RX and handler views also remain retained.
+Successful delivery calls MarkEmitted/Complete; failure aborts after readers stop.
+Only then are receive storage and status content reusable.
+
+`ArtyWebApp` is the board composition root: it constructs the concrete EthernetLite
 receiver, transmitter and driver and supplies them to `WebApplication`. The
-wrapper retains the external AXI/UART pins. The new driver has Livt simulation
-coverage only; the previous board baseline does not verify this refactoring.
+wrapper retains the external AXI/UART pins. The migrated design passes focused simulation and complete HTTP checks on the
+Arty A7-100T; see [board validation](verification/framework-board-validation.md).
 
 ## Namespaces
 
@@ -69,9 +64,10 @@ Production components live in `Livt.WebApp`. Tests use `Livt.WebApp.Tests`.
 
 | Area | Components |
 |---|---|
-| Board composition | `WebApp` |
+| Board composition | `ArtyWebApp` |
 | Device-independent application | `WebApplication<R, T>` |
-| Static content | `IndexHtmlStore`, `AboutHtmlStore`, `StatusHtmlStore` |
+| Route declarations | `WebRoutes<R>`, `HomePath`, `AboutPath`, `StatusPath` |
+| Body providers | `IndexHtmlStore`, `AboutHtmlStore`, `StatusHtmlStore` |
 | Vendor wrapper | `board/webapp_wrapper.vhd` |
 
 ## Overview
@@ -79,22 +75,18 @@ Production components live in `Livt.WebApp`. Tests use `Livt.WebApp.Tests`.
 `WebApplication` owns the application loop:
 
 1. Acquire an available frame through `IFrameReceiver`.
-2. Copy frame bytes into `Livt.Web.Http.NetworkEndpoint`.
-3. Dispatch `/`, `/about`, and `/status` to the bound `WebContent` provider.
-4. Prepare the complete response over that selected content.
-5. Publish ARP, ICMP, TCP SYN-ACK or HTTP response data and submit it through
-   `IFrameTransmitter`, retaining ownership until terminal completion.
-6. Emit compact UART diagnostics for the banner and HTTP routes.
+2. Parse and dispatch through `HttpServer`, resuming Pending work with Poll.
+3. Select an application GET handler or a shared 404/405 fallback.
+4. Check and copy the complete prepared response into TX RAM.
+5. Submit through `IFrameTransmitter` and retain all borrowed data until completion.
+6. Release the graph and update counters for the next status snapshot.
 
 The Arty application contains only the web server and its diagnostics. The
 packet-classification demo (rule, linear, and FFN) has been removed to reduce
 hardware use. The board design also omits the RGB matrix IP and HUB75 pins.
 
-The route slot meanings are owned by this package:
-
-- route 1: `/`
-- route 2: `/about`
-- route 3: `/status`
+`HomePath`, `AboutPath` and `StatusPath` own the immutable URL bytes `/`, `/about`
+and `/status`. The library has no numeric route slots or application URLs.
 
 ## Supported Traffic
 
@@ -107,21 +99,36 @@ The route slot meanings are owned by this package:
 - One active TCP connection at a time
 
 Out of scope: IPv6, UDP application traffic, TLS, QUIC, a full TCP/IP stack,
-dynamic server-side content, and multiple simultaneous HTTP connections.
+request bodies, segmented requests, retransmission, and multiple simultaneous HTTP
+connections. HEAD body suppression is not implemented; the demo declares GET only.
+The HTTP response budget is 1460 bytes, including headers. Home/status bodies are
+1373 bytes each and their complete responses are 1458 bytes; About is 1407 bytes
+including headers. These limits are checked before transmission.
 
 ## Build and Test
 
 ```sh
-livt test
+livt test -r WebRoutesTest
+livt test -r IndexHtmlStoreTest
+livt test -r AboutHtmlStoreTest
+livt test -r StatusHtmlStoreTest
 livt build
 ```
+
+Use component/test filters for focused iteration. Unfiltered `livt test` also
+includes a very slow complete Home-frame case that can exceed the default
+simulator timeout. See [migration verification](verification/framework-migration.md)
+for the initial 184 passing focused checks, deferred full-frame simulation and the
+command to resume the long case.
 
 The UART wire-level check and recorded migration results are described in
 [`verification/README.md`](verification/README.md).
 
-The final migration checks use the sibling Net and Web sources. Package versions
-remain development identifiers; no registry publication or new board validation
-is implied. Rebuild the generated IP package before any later board build.
+The recorded migration and board checks used sibling Net and Web sources. The
+manifest now selects registry packages; those earlier results do not independently
+validate the published package contents. The migrated source package was built
+and flashed successfully. Rebuild the generated IP package
+after source changes before a later board build.
 
 The application capability test checks an independently expected complete ARP
 reply and retains response storage through backpressure. Driver AXI handshakes,
@@ -131,14 +138,6 @@ RX memory without FCS; it has been removed rather than counted as coverage.
 
 The configured test list is defined in [`livt.toml`](livt.toml). The Vivado IP
 metadata is also configured there under `[vendor.vivado.ip]`.
-
-If generated test output needs to be refreshed without deleting synchronized
-dependencies:
-
-```sh
-rm -rf out .livt/src.json .livt/ghdl
-livt test
-```
 
 ## Vivado Notes
 
@@ -192,7 +191,7 @@ on-device behavior; those require building and testing the Arty board project.
 - Keep reusable HTTP endpoint behavior in `Livt.Web`.
 - Keep application route meanings, page content, counters, UART text,
   and board/IP wiring in this package.
-- Avoid exposing public functions from `WebApp` only for tests; prefer testing at
+- Avoid exposing public functions from `ArtyWebApp` only for tests; prefer testing at
   the web endpoint or store boundary.
 - Keep generated build output out of commits.
 

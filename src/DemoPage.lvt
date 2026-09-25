@@ -1,0 +1,12 @@
+namespace Livt.WebApp
+
+/**
+ * Application page identity used only for logging and counters.
+ */
+enum DemoPage
+{
+	None
+	Home
+	About
+	Status
+}

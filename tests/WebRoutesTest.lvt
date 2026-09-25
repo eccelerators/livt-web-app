@@ -1,0 +1,157 @@
+namespace Livt.WebApp.Tests
+
+using Livt.Net
+using Livt.Web.Http
+using Livt.WebApp
+
+@Test
+component WebRoutesTest
+{
+	request: HttpRequestParser<ArrayPacketData<128>>
+	router: HttpRouter<WebRoutes<HttpRequestParser<ArrayPacketData<128>>>>
+	routes: WebRoutes<HttpRequestParser<ArrayPacketData<128>>>
+	home: IndexHtmlStore
+	about: AboutHtmlStore
+	source: ArrayPacketData<128>
+	application: HttpApplication<ArrayPacketData<128>, WebRoutes<HttpRequestParser<ArrayPacketData<128>>>>
+	status: StatusHtmlStore
+
+	/**
+	 * Constructs the real application route tree over a bounded HTTP source.
+	 */
+	new()
+	{
+		this.source = new ArrayPacketData<128>()
+		this.request = new HttpRequestParser<ArrayPacketData<128>>(this.source)
+		this.status = new StatusHtmlStore()
+		this.home = new IndexHtmlStore()
+		this.about = new AboutHtmlStore()
+		this.routes = new WebRoutes<HttpRequestParser<ArrayPacketData<128>>>(this.request, this.home, this.about, this.status)
+		this.router = new HttpRouter<WebRoutes<HttpRequestParser<ArrayPacketData<128>>>>(routes)
+		this.application = new HttpApplication<ArrayPacketData<128>, WebRoutes<HttpRequestParser<ArrayPacketData<128>>>>(this.request, this.router)
+	}
+
+	/**
+	 * Resets ownership and publishes an independent complete HTTP request.
+	 */
+	fn Begin(message: byte[])
+	{
+		this.application.Abort()
+		assert this.application.Release()
+		if (this.source.IsReady()) {
+			assert this.source.TryRelease() == PacketDataResult.Success
+		}
+		assert this.source.TryClear() == PacketDataResult.Success
+		for (var i = 0; i < message.Length(); i++) {
+			assert this.source.TryWrite(i, message[i]) == PacketDataResult.Success
+		}
+		assert this.source.TryPublish() == PacketDataResult.Success
+		assert this.application.Begin(1460, true) == HttpApplicationState.Published
+	}
+
+	/**
+	 * Compares every header byte and the complete response extent.
+	 */
+	fn CheckHeader(expected: byte[], length: int)
+	{
+		assert this.application.GetAvailableLength() == length
+		var value: byte = 0x00
+		for (var i = 0; i < expected.Length(); i++) {
+			assert this.application.TryRead(i, value) == PacketDataResult.Success
+			assert value == expected[i]
+		}
+	}
+
+	@Test
+	/**
+	 * Verifies the declared route, exact HTTP header and body start against independent expectations.
+	 */
+	fn ServesHomeWithinFrameBudget()
+	{
+		var message = "GET / HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: 1373\r\nConnection: close\r\n\r\n".Encode()
+		this.CheckHeader(header, 1458)
+		var value: byte = 0x00
+		assert this.application.TryRead(85, value) == PacketDataResult.Success
+		assert value == 0x3C
+	}
+
+	@Test
+	/**
+	 * Verifies the declared route, exact HTTP header and body start against independent expectations.
+	 */
+	fn ServesAboutWithinFrameBudget()
+	{
+		var message = "GET /about HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: 1322\r\nConnection: close\r\n\r\n".Encode()
+		this.CheckHeader(header, 1407)
+		var value: byte = 0x00
+		assert this.application.TryRead(85, value) == PacketDataResult.Success
+		assert value == 0x3C
+	}
+
+	@Test
+	/**
+	 * Verifies the declared route, exact HTTP header and body start against independent expectations.
+	 */
+	fn ServesStatusWithinFrameBudget()
+	{
+		var message = "GET /status HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var header = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: 1373\r\nConnection: close\r\n\r\n".Encode()
+		this.CheckHeader(header, 1458)
+		var value: byte = 0x00
+		assert this.application.TryRead(85, value) == PacketDataResult.Success
+		assert value == 0x3C
+	}
+
+	@Test
+	/**
+	 * Verifies the route fallback wire response.
+	 */
+	fn HandlesMissing()
+	{
+		var message = "GET /missing HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var header = "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 10\r\nConnection: close\r\n\r\nNot Found\n".Encode()
+		this.CheckHeader(header, header.Length())
+	}
+
+	@Test
+	/**
+	 * Verifies the route fallback wire response.
+	 */
+	fn HandlesWrongMethod()
+	{
+		var message = "POST / HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var header = "HTTP/1.0 405 Method Not Allowed\r\nContent-Type: text/plain\r\nAllow: GET\r\nContent-Length: 19\r\nConnection: close\r\n\r\nMethod Not Allowed\n".Encode()
+		this.CheckHeader(header, header.Length())
+	}
+
+	/**
+	 * The application-owned status snapshot is retained until the response closes.
+	 */
+	@Test
+	fn RetainsStatusSnapshotAndPublishesNextCounters()
+	{
+		this.status.SetCounters(10, 11, 12, 13, 14, 15)
+		var message = "GET /status HTTP/1.0\r\n\r\n".Encode()
+		this.Begin(message)
+		var value: byte = 0x00
+		assert this.application.TryRead(1211, value) == PacketDataResult.Success
+		assert value == 0x41
+		assert this.application.MarkEmitted()
+		assert !this.application.Release()
+		assert this.application.TryRead(1398, value) == PacketDataResult.Success
+		assert value == 0x46
+		assert this.application.Complete()
+		assert this.application.Release()
+		this.status.SetCounters(1, 2, 3, 4, 5, 6)
+		this.Begin(message)
+		assert this.application.TryRead(1211, value) == PacketDataResult.Success
+		assert value == 0x31
+	}
+}

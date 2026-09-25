@@ -4,7 +4,7 @@ use ieee.numeric_std.all;
 use work.livt_lang_package.all;
 use work.livt_lang_icontext_package.all;
 use work.livt_net_iaxi4liteethernetlitemaster_package.all;
-use work.livt_webapp_webapp_package.all;
+use work.livt_webapp_artywebapp_package.all;
 
 entity uart_banner is
   generic (TEST_CLOCK_HZ : positive := 10000000);
@@ -22,7 +22,7 @@ begin
   clk <= not clk after clock_period / 2;
   ctx <= (clk, rst, to_unsigned(TEST_CLOCK_HZ, 32), to_unsigned(1000000000 / TEST_CLOCK_HZ, 32),
           to_unsigned(500000000 / TEST_CLOCK_HZ, 32), to_unsigned(500000000 / TEST_CLOCK_HZ, 32));
-  dut: entity work.livt_webapp_webapp
+  dut: entity work.livt_webapp_artywebapp
     generic map (LVT_CLOCK_HZ => to_unsigned(TEST_CLOCK_HZ, 32)) port map(
     ctor_axi_in => (m_axi_awready => '0', m_axi_wready => '0', m_axi_bresp => "00",
       m_axi_bvalid => '0', m_axi_arready => '0', m_axi_rdata => x"00000000",

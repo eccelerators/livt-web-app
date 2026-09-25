@@ -141,7 +141,7 @@ architecture behavioural of webapp_wrapper is
 begin
 
     -- AXI Ethernet Lite needs a few cycles after s_axi_aresetn is released
-    -- before it is accessed, so keep only the WebApp AXI master reset longer.
+    -- before it is accessed, so keep only the ArtyWebApp AXI master reset longer.
     webapp_reset_delay_process : process (Clk)
     begin
         if rising_edge(Clk) then
@@ -159,7 +159,7 @@ begin
 
 	Rst <= not delayed_nRst;
 
-	-- Drive M_AXI master outputs from WebApp
+	-- Drive M_AXI master outputs from ArtyWebApp
 	M_AXI_AWADDR  <= s_axi_out.m_axi_awaddr;
 	M_AXI_AWVALID <= s_axi_out.m_axi_awvalid;
 	M_AXI_WDATA   <= s_axi_out.m_axi_wdata;
@@ -170,7 +170,7 @@ begin
 	M_AXI_ARVALID <= s_axi_out.m_axi_arvalid;
 	M_AXI_RREADY  <= s_axi_out.m_axi_rready;
 
-	webapp_i : entity work.livt_webapp_webapp
+	webapp_i : entity work.livt_webapp_artywebapp
 		port map (
 			ctor_lvt_context_in          => (clk => Clk, rst => Rst,
                 tickspersecond => to_unsigned(100000000, 32),

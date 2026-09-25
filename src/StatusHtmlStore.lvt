@@ -1,28 +1,33 @@
 namespace Livt.WebApp
 
-// Application-owned dynamic content store for the /status HTML page.
-component StatusHtmlStore
+using Livt.Net
+
+/**
+ * Application-owned HTML provider. Keep bytes stable while a response borrows it.
+ */
+component StatusHtmlStore : IPacketData
 {
-	const CONTENT: byte[] = '<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><link href=https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css rel=stylesheet><script src=https://unpkg.com/htmx.org@2></script></head><body style="--bs-primary-rgb:37,63,142;color:#0a1a49;background:linear-gradient(120deg,rgba(37,63,142,.08),#f7f9fc)"><div class=d-flex><nav class="p-3 text-white" style="background:#253F8E;width:232px;min-height:100vh"><img src=https://eccelerators.com/images/eccelerators-logo.png class="img-fluid mb-4"><div class="d-grid gap-2"><a class="d-block p-2 rounded text-decoration-none text-white" href=/>Home</a><a class="d-block p-2 rounded text-decoration-none text-white" href=/about>About</a><a class="d-block p-2 rounded text-decoration-none bg-white text-primary" href=/status>Status</a></div></nav><main class="p-4"><div style=width:780px><p>FPGA served page</p><h1 style="color:#0a1a49">Status</h1><p>Live network event counters.</p><hr><table class=table style=--bs-table-bg:transparent hx-get=/status hx-trigger="every 5s" hx-select=table hx-swap=outerHTML><tbody><tr><th>ARP</th><td>0x0</td></tr><tr><th>ICMP</th><td>0x0</td></tr><tr><th>TCP SYN</th><td>0x0</td></tr><tr><th>GET /</th><td>0x0</td></tr><tr><th>GET /about</th><td>0x0</td></tr><tr><th>GET /status</th><td>0x0</td></tr></tbody></table></div></main></div></body></html>'.Encode()
-	const CONTENT_LENGTH: int = 1388
-	const BASE_CHECKSUM_WORD_SUM: int = 15541516
+	const CONTENT: byte[] = '<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><link href=https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css rel=stylesheet><script src=https://unpkg.com/htmx.org@2></script></head><body style="--bs-primary-rgb:37,63,142;color:#0a1a49;background:linear-gradient(120deg,rgba(37,63,142,.08),#f7f9fc)"><div class=d-flex><nav class="p-3 text-white" style="background:#253F8E;width:232px;min-height:100vh"><img src=https://eccelerators.com/images/eccelerators-logo.png class="img-fluid mb-4"><div class="d-grid gap-2"><a class="d-block p-2 rounded text-decoration-none text-white" href=/>Home</a><a class="d-block p-2 rounded text-decoration-none text-white" href=/about>About</a><a class="d-block p-2 rounded text-decoration-none bg-white text-primary" href=/status>Status</a></div></nav><main class="p-4"><div style=width:780px><p>FPGA served page</p><h1 style="color:#0a1a49">Status</h1><p>Network counters.</p><table class=table style=--bs-table-bg:transparent hx-get=/status hx-trigger="every 5s" hx-select=table hx-swap=outerHTML><tbody><tr><th>ARP</th><td>0x0</td></tr><tr><th>ICMP</th><td>0x0</td></tr><tr><th>TCP SYN</th><td>0x0</td></tr><tr><th>GET /</th><td>0x0</td></tr><tr><th>GET /about</th><td>0x0</td></tr><tr><th>GET /status</th><td>0x0</td></tr></tbody></table></div></main></div></body></html>'.Encode()
 
-	const ARP_OFFSET: int = 1141
-	const ICMP_OFFSET: int = 1175
-	const SYN_OFFSET: int = 1212
-	const ROOT_OFFSET: int = 1247
-	const ABOUT_OFFSET: int = 1287
-	const STATUS_OFFSET: int = 1328
+	// Byte positions of the six digits in the application-owned template.
+	const ARP_OFFSET: int = 1126
+	const ICMP_OFFSET: int = 1160
+	const SYN_OFFSET: int = 1197
+	const ROOT_OFFSET: int = 1232
+	const ABOUT_OFFSET: int = 1272
+	const STATUS_OFFSET: int = 1313
 
+	// Snapshot digits; updated only after response readers stop.
 	arpDigit: byte
 	icmpDigit: byte
 	synDigit: byte
 	rootDigit: byte
 	aboutDigit: byte
 	statusDigit: byte
-	wordSum: int
-	ready: bool
 
+	/**
+	 * Initializes the six counter digits to zero.
+	 */
 	new()
 	{
 		this.arpDigit = 0x30
@@ -31,78 +36,93 @@ component StatusHtmlStore
 		this.rootDigit = 0x30
 		this.aboutDigit = 0x30
 		this.statusDigit = 0x30
-		this.wordSum = BASE_CHECKSUM_WORD_SUM
-		this.ready = false
 	}
 
+	/**
+	 * Updates the next status snapshot. Requires all response readers to have stopped.
+	 */
 	public fn SetCounters(arp: int, icmp: int, syn: int, root: int, about: int, status: int)
 	{
-		var arpAscii = this.HexDigit(arp)
-		var icmpAscii = this.HexDigit(icmp)
-		var synAscii = this.HexDigit(syn)
-		var rootAscii = this.HexDigit(root)
-		var aboutAscii = this.HexDigit(about)
-		var statusAscii = this.HexDigit(status)
-
-		this.arpDigit = arpAscii as byte
-		this.icmpDigit = icmpAscii as byte
-		this.synDigit = synAscii as byte
-		this.rootDigit = rootAscii as byte
-		this.aboutDigit = aboutAscii as byte
-		this.statusDigit = statusAscii as byte
-
-		this.wordSum = BASE_CHECKSUM_WORD_SUM + (arpAscii - 0x30) + (icmpAscii - 0x30) + (synAscii - 0x30) * 256 + (rootAscii - 0x30) + (aboutAscii - 0x30) + (statusAscii - 0x30) * 256
-		this.ready = true
+		this.arpDigit = this.HexDigit(arp)
+		this.icmpDigit = this.HexDigit(icmp)
+		this.synDigit = this.HexDigit(syn)
+		this.rootDigit = this.HexDigit(root)
+		this.aboutDigit = this.HexDigit(about)
+		this.statusDigit = this.HexDigit(status)
 	}
 
-	fn HexDigit(value: int) int
+	/**
+	 * Formats the low hexadecimal digit of a nonnegative event count.
+	 */
+	fn HexDigit(value: int) byte
 	{
-		if (value < 10)
-		{
-			return 0x30 + value
+		var digit = value % 16
+
+		if (digit < 10) {
+			return (0x30 + digit) as byte
 		}
-		return 0x41 + value - 10
+
+		return (0x41 + digit - 10) as byte
 	}
 
-	fn GetContentByte(index: int) byte
+	/**
+	 * The content is always published; the owner serializes status updates.
+	 */
+	override fn IsReady() bool
 	{
-		if (index < 0) { return 0x00 }
-		if (index >= CONTENT_LENGTH) { return 0x00 }
-		if (index == ARP_OFFSET) { return this.arpDigit }
-		if (index == ICMP_OFFSET) { return this.icmpDigit }
-		if (index == SYN_OFFSET) { return this.synDigit }
-		if (index == ROOT_OFFSET) { return this.rootDigit }
-		if (index == ABOUT_OFFSET) { return this.aboutDigit }
-		if (index == STATUS_OFFSET) { return this.statusDigit }
-		return CONTENT[index]
+		return true
 	}
 
-	process Main()
+	/**
+	 * Returns the complete body byte length.
+	 */
+	override fn GetAvailableLength() int
 	{
-		if (this.ready == false)
-		{
-			this.wordSum = BASE_CHECKSUM_WORD_SUM
-			this.ready = true
+		return CONTENT.Length()
+	}
+
+	/**
+	 * Reads a checked body byte; invalid reads publish no value.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (index < 0 || index >= CONTENT.Length()) {
+			return PacketDataResult.Invalid
 		}
-	}
 
-	public fn IsReady() bool
-	{
-		return this.ready
-	}
+		if (index == ARP_OFFSET) {
+			value = this.arpDigit
+			return PacketDataResult.Success
+		}
 
-	public fn GetLength() int
-	{
-		return CONTENT_LENGTH
-	}
+		if (index == ICMP_OFFSET) {
+			value = this.icmpDigit
+			return PacketDataResult.Success
+		}
 
-	public fn GetChecksumWordSum() int
-	{
-		return this.wordSum
-	}
+		if (index == SYN_OFFSET) {
+			value = this.synDigit
+			return PacketDataResult.Success
+		}
 
-	public fn GetByte(index: int) logic[8]
-	{
-		return this.GetContentByte(index)
+		if (index == ROOT_OFFSET) {
+			value = this.rootDigit
+			return PacketDataResult.Success
+		}
+
+		if (index == ABOUT_OFFSET) {
+			value = this.aboutDigit
+			return PacketDataResult.Success
+		}
+
+		if (index == STATUS_OFFSET) {
+			value = this.statusDigit
+			return PacketDataResult.Success
+		}
+
+		value = CONTENT[index]
+		return PacketDataResult.Success
 	}
 }

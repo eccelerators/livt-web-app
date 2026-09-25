@@ -1,0 +1,42 @@
+namespace Livt.WebApp
+
+using Livt.Net
+
+/**
+ * Immutable application URL path; owns no mutable storage.
+ */
+component AboutPath : IPacketData
+{
+	const PATH: byte[] = "/about".Encode()
+
+	/**
+	 * Always published.
+	 */
+	override fn IsReady() bool
+	{
+		return true
+	}
+
+	/**
+	 * Returns the encoded path length in bytes.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return PATH.Length()
+	}
+
+	/**
+	 * Reads a checked path byte; invalid reads return zero.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		value = 0x00
+
+		if (index < 0 || index >= PATH.Length()) {
+			return PacketDataResult.Invalid
+		}
+
+		value = PATH[index]
+		return PacketDataResult.Success
+	}
+}

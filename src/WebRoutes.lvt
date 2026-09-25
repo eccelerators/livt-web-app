@@ -1,0 +1,158 @@
+namespace Livt.WebApp
+
+using Livt.Net
+using Livt.Web.Http
+
+/**
+ * Application route declarations over the same borrowed request.
+ * Owns matchers and handler views; body stores remain application-owned.
+ */
+component WebRoutes<R: IHttpRequest> : IHttpRoute
+{
+	// Owned composition nodes; shared references never create another instance.
+	homePath: HomePath
+	homeMatch: HttpPath<R, HomePath>
+	homeRoute: Route<R, HttpPath<R, HomePath>, StaticContent<IndexHtmlStore>>
+	aboutPath: AboutPath
+	aboutMatch: HttpPath<R, AboutPath>
+	aboutRoute: Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>
+	statusPath: StatusPath
+	statusMatch: HttpPath<R, StatusPath>
+	statusRoute: Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>
+	tail: RouteChain<Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>, Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>>
+
+	home: StaticContent<IndexHtmlStore>
+	about: StaticContent<AboutHtmlStore>
+	status: StaticContent<StatusHtmlStore>
+	tree: RouteChain<Route<R, HttpPath<R, HomePath>, StaticContent<IndexHtmlStore>>, RouteChain<Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>, Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>>>
+
+	/**
+	 * Binds exact GET paths /, /about and /status; other paths/methods use router fallbacks.
+	 */
+	new(request: R, homeStore: IndexHtmlStore, aboutStore: AboutHtmlStore, statusStore: StatusHtmlStore)
+	{
+		this.home = new StaticContent<IndexHtmlStore>(homeStore, HttpContentType.Html)
+		this.homePath = new HomePath()
+		this.homeMatch = new HttpPath<R, HomePath>(request, homePath)
+		this.homeRoute = new Route<R, HttpPath<R, HomePath>, StaticContent<IndexHtmlStore>>(HttpMethod.Get, request, homeMatch, this.home)
+		this.about = new StaticContent<AboutHtmlStore>(aboutStore, HttpContentType.Html)
+		this.aboutPath = new AboutPath()
+		this.aboutMatch = new HttpPath<R, AboutPath>(request, aboutPath)
+		this.aboutRoute = new Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>(HttpMethod.Get, request, aboutMatch, this.about)
+		this.status = new StaticContent<StatusHtmlStore>(statusStore, HttpContentType.Html)
+		this.statusPath = new StatusPath()
+		this.statusMatch = new HttpPath<R, StatusPath>(request, statusPath)
+		this.statusRoute = new Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>(HttpMethod.Get, request, statusMatch, this.status)
+		this.tail = new RouteChain<Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>, Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>>(aboutRoute, statusRoute)
+		this.tree = new RouteChain<Route<R, HttpPath<R, HomePath>, StaticContent<IndexHtmlStore>>, RouteChain<Route<R, HttpPath<R, AboutPath>, StaticContent<AboutHtmlStore>>, Route<R, HttpPath<R, StatusPath>, StaticContent<StatusHtmlStore>>>>(homeRoute, tail)
+	}
+
+	/**
+	 * Reports the prepared application handler, excluding fallback responses.
+	 */
+	public fn GetPreparedPage() DemoPage
+	{
+		if (this.home.IsReady()) {
+			return DemoPage.Home
+		}
+
+		if (this.about.IsReady()) {
+			return DemoPage.About
+		}
+
+		if (this.status.IsReady()) {
+			return DemoPage.Status
+		}
+
+		return DemoPage.None
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn Select() RouteDispatch
+	{
+		return this.tree.Select()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn GetMatchedMethods() HttpAllowedMethods
+	{
+		return this.tree.GetMatchedMethods()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn Begin() HttpPreparation
+	{
+		return this.tree.Begin()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn Poll() HttpPreparation
+	{
+		return this.tree.Poll()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn End()
+	{
+		this.tree.End()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn IsReady() bool
+	{
+		return this.tree.IsReady()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn GetStatus() HttpStatus
+	{
+		return this.tree.GetStatus()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn GetContentType() HttpContentType
+	{
+		return this.tree.GetContentType()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn GetAllowedMethods() HttpAllowedMethods
+	{
+		return this.tree.GetAllowedMethods()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn GetAvailableLength() int
+	{
+		return this.tree.GetAvailableLength()
+	}
+
+	/**
+	 * Delegates to the owned route tree under the IHttpRoute lifetime contract.
+	 */
+	override fn TryRead(index: int, value: out byte) PacketDataResult
+	{
+		return this.tree.TryRead(index, value)
+	}
+
+}

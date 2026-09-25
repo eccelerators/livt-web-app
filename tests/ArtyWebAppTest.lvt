@@ -5,12 +5,12 @@ using Livt.Net.Drivers.EthernetLite
 using Livt.WebApp
 
 @Test
-component WebAppTest
+component ArtyWebAppTest
 {
 	const TX_PING_CONTROL: logic[13] = 0b0011111111100
 
 	axi: Axi4LiteEthernetLiteAdapter
-	server: WebApp
+	server: ArtyWebApp
 	rx: logic
 	tx: logic
 	ethernet_frame_detected: logic
@@ -34,7 +34,7 @@ component WebAppTest
 		localPort[1] = 0x50
 
 		this.axi = new Axi4LiteEthernetLiteAdapter()
-		this.server = new WebApp(
+		this.server = new ArtyWebApp(
 			this.axi,
 			localMac,
 			localIp,

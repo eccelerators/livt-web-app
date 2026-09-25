@@ -1,5 +1,6 @@
 namespace Livt.WebApp.Tests
 
+using Livt.Net
 using Livt.WebApp
 
 @Test
@@ -7,64 +8,46 @@ component IndexHtmlStoreTest
 {
 	store: IndexHtmlStore
 
+	/**
+	 * Constructs the body provider.
+	 */
 	new()
 	{
 		this.store = new IndexHtmlStore()
 	}
 
-	// Polls IsReady() for up to 800 cycles, allowing process Main to complete.
-	fn WaitForReady()
-	{
-		var done: bool = false
-
-		for (var wait = 0; wait < 800; wait++)
-		{
-			if (done == false)
-			{
-				if (this.store.IsReady() == true)
-				{
-					done = true
-				}
-			}
-		}
-	}
-
 	@Test
-	fn ExposesLength()
+	/**
+	 * Checks independent body samples, extent and invalid-read behavior.
+	 */
+	fn PublishesCheckedBodyBytes()
 	{
-		assert this.store.GetLength() == 1377
-	}
-
-	@Test
-	fn ReadsContentBytes()
-	{
-		assert this.store.GetByte(0) == 0x3C
-		assert this.store.GetByte(1) == 0x21
-		assert this.store.GetByte(10) == 0x68
-		assert this.store.GetByte(31) == 0x61
-		assert this.store.GetByte(69) == 0x77
-		assert this.store.GetByte(145) == 0x2E
-		assert this.store.GetByte(250) == 0x3B
-		assert this.store.GetByte(500) == 0x63
-		assert this.store.GetByte(900) == 0x6C
-		assert this.store.GetByte(1376) == 0x20
-		assert this.store.GetByte(1377) == 0x00
-	}
-
-	@Test
-	fn IsReadyAfterStartup()
-	{
-		this.WaitForReady()
-
-		assert this.store.IsReady() == true
-	}
-
-	@Test
-	fn ComputesChecksumWordSum()
-	{
-		this.WaitForReady()
-
-		assert this.store.IsReady() == true
-		assert this.store.GetChecksumWordSum() == 15388016
+		assert this.store.IsReady()
+		assert this.store.GetAvailableLength() == 1373
+		var value: byte = 0x00
+		assert this.store.TryRead(0, value) == PacketDataResult.Success
+		assert value == 0x3C
+		assert this.store.TryRead(1, value) == PacketDataResult.Success
+		assert value == 0x21
+		assert this.store.TryRead(10, value) == PacketDataResult.Success
+		assert value == 0x68
+		assert this.store.TryRead(31, value) == PacketDataResult.Success
+		assert value == 0x61
+		assert this.store.TryRead(69, value) == PacketDataResult.Success
+		assert value == 0x77
+		assert this.store.TryRead(145, value) == PacketDataResult.Success
+		assert value == 0x2E
+		assert this.store.TryRead(250, value) == PacketDataResult.Success
+		assert value == 0x3B
+		assert this.store.TryRead(500, value) == PacketDataResult.Success
+		assert value == 0x63
+		assert this.store.TryRead(900, value) == PacketDataResult.Success
+		assert value == 0x6C
+		assert this.store.TryRead(1372, value) == PacketDataResult.Success
+		assert value == 0x20
+		assert this.store.TryRead(-1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert this.store.TryRead(1373, value) == PacketDataResult.Invalid
+		assert value == 0x00
 	}
 }

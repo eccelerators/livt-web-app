@@ -18,7 +18,7 @@ def main():
                         help='Simulation clock; 10 MHz reduces cycles while retaining 115200-baud framing')
     args = parser.parse_args()
     generated = args.generated.resolve()
-    candidates = list(generated.rglob('Livt.WebApp.WebApp.vhd'))
+    candidates = list(generated.rglob('Livt.WebApp.ArtyWebApp.vhd'))
     if len(candidates) != 1:
         raise RuntimeError(f'Expected one generated WebApp entity: {candidates}')
     source = candidates[0].read_text().split('architecture ')[0]

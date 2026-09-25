@@ -5,258 +5,229 @@ using Livt.Net
 using Livt.Web.Http
 
 /**
- * Web demo logic over frame-link capabilities, with no bus or device dependency.
- * One process owns RX acquisition, prepared response storage and TX completion.
+ * Serial owner of RX, route handlers and TX completion. Borrows acquired RX directly;
+ * no second capture buffer. Keeps request/body views alive until emission completes.
  */
 component WebApplication<R: IFrameReceiver, T: IFrameTransmitter>
 {
-	const RX_FRAME_SIZE: int = 128
+	// Owned composition nodes; shared references never create another instance.
+	ethernet: EthernetFrameParser<R>
+	ipv4: Ipv4PacketParser<EthernetFrameParser<R>>
+	connection: TcpConnectionRecognizer<R>
+	request: HttpRequestParser<TcpConnectionRecognizer<R>>
 
-	// Owned UART and independent RX/TX capabilities supplied by the board root.
+	// Owned UART and borrowed link capabilities in the same reset domain.
 	uart: IBufferedUart
-
 	receiver: R
 	transmitter: T
 
-	// Borrowed response storage, retained from preparation through terminal completion.
+	// Borrowed TX publication and owned admission/completion coordinator.
 	responseData: RamPacketData<1514>
 	transfer: ResponseTransfer<T>
 
-	// Owned protocol endpoint and application-specific content providers.
-	endpoint: NetworkEndpoint<WebContent>
-	content: WebContent
-
+	// Owned shared parser/server graph, application routes and body providers.
+	endpoint: HttpServer<R, WebRoutes<HttpRequestParser<TcpConnectionRecognizer<R>>>>
+	routes: WebRoutes<HttpRequestParser<TcpConnectionRecognizer<R>>>
 	fileStore: IndexHtmlStore
-
 	aboutStore: AboutHtmlStore
-
 	statusStore: StatusHtmlStore
 
+	// Main owns frame acquisition and serializes all body mutations.
 	bannerSent: bool
+	receiveHeld: bool
+	ethernetFrameDetected: logic
 
-	initialized: bool
-
-	// Demo counters used to build the status page.
+	// Counters describe prepared responses; low hexadecimal digits feed the page.
 	arpCount: int
-
 	icmpCount: int
-
 	synCount: int
-
 	rootCount: int
-
 	aboutCount: int
-
 	statusCount: int
 
-	ethernet_frame_detected: logic
-
 	/**
-	 * Borrows frame capabilities and response RAM, and creates the endpoint,
-	 * content providers and UART in the same coordinated clock/reset domain.
+	 * Constructs one shared request graph and application route tree. All bindings share reset.
 	 */
-	new(
-		receiver: R,
-		transmitter: T,
-
-	// Borrowed response storage, retained from preparation through terminal completion.
-		responseData: RamPacketData<1514>,
-		local_mac: in byte[6],
-		local_ip: in byte[4],
-		local_port: in byte[2],
-		uart_rx: in logic,
-		uart_tx: out logic,
-		ethernet_frame_detected: out logic
-		)
+	new(receiver: R, transmitter: T, responseData: RamPacketData<1514>,
+		local_mac: in byte[6], local_ip: in byte[4], local_port: in byte[2],
+		uart_rx: in logic, uart_tx: out logic, ethernet_frame_detected: out logic)
 	{
 		this.receiver = receiver
 		this.transmitter = transmitter
-		this.transfer = new ResponseTransfer<T>(transmitter)
 		this.responseData = responseData
+		this.transfer = new ResponseTransfer<T>(transmitter)
 		this.fileStore = new IndexHtmlStore()
 		this.aboutStore = new AboutHtmlStore()
 		this.statusStore = new StatusHtmlStore()
-		this.content = new WebContent(this.fileStore, this.aboutStore, this.statusStore)
-		this.endpoint = new NetworkEndpoint<WebContent>(this.content, local_mac, local_ip, local_port)
+		this.ethernet = new EthernetFrameParser<R>(receiver)
+		this.ipv4 = new Ipv4PacketParser<EthernetFrameParser<R>>(ethernet)
+		this.connection = new TcpConnectionRecognizer<R>(ethernet, ipv4)
+		this.request = new HttpRequestParser<TcpConnectionRecognizer<R>>(connection)
+		this.routes = new WebRoutes<HttpRequestParser<TcpConnectionRecognizer<R>>>(request, this.fileStore, this.aboutStore, this.statusStore)
+		this.endpoint = new HttpServer<R, WebRoutes<HttpRequestParser<TcpConnectionRecognizer<R>>>>(receiver, ethernet, ipv4, connection, request, this.routes, local_mac, local_ip, local_port)
 		this.uart = new BufferedUart<64, 128>(uart_rx, uart_tx)
-
-		ethernet_frame_detected = this.ethernet_frame_detected
+		ethernet_frame_detected = this.ethernetFrameDetected
 	}
 
 	/**
-	 * Serializes receive acquisition, response preparation and terminal TX cleanup.
-	 * A response publication remains stable while submission is paused or borrowed.
+	 * Resumes pending work and keeps RX/response storage stable through admission and completion.
 	 */
 	process Main()
 	{
-		this.ethernet_frame_detected = 0b0
+		this.ethernetFrameDetected = 0b0
 
-		if (this.bannerSent == false) {
+		if (!this.bannerSent) {
 			var banner = "Eccelerators GmbH\r\nFPGA Conference 2026\r\n".Encode()
 			this.SendLog(banner)
 			this.bannerSent = true
 		}
 
-		if (this.fileStore.IsReady() == false ||
-			this.aboutStore.IsReady() == false ||
-			this.statusStore.IsReady() == false)
-		{
-			continue
-		}
-
-		if (this.initialized == false) {
-			this.endpoint.SetRoutePath(1, 1)
-
-			this.endpoint.SetRoutePath(2, 2)
-
-			this.endpoint.SetRoutePath(3, 3)
-
-			this.initialized = true
-		}
-
-		// The shared coordinator retains prepared storage through admission and TX.
-
 		if (this.transfer.GetState() != ResponseTransferState.Idle) {
-
 			if (this.transfer.Poll() != ResponseTransferState.Completed) {
 				continue
 			}
 
+			var outcome = FrameTransmitOutcome.DeviceFailure
+			this.transfer.TryGetCompletion(outcome)
+			var completed = false
+
+			if (outcome == FrameTransmitOutcome.Delivered && this.endpoint.MarkEmitted()) {
+				completed = this.endpoint.Complete()
+			}
+
 			this.responseData.TryRelease()
 			this.transfer.TryAcknowledgeCompletion()
+			this.FinishFrame(!completed)
 			continue
 		}
 
-		if (this.receiver.TryAcquire() != FrameLinkResult.Success) {
-			continue
-		}
-
-		this.ethernet_frame_detected = 0b1
-		this.endpoint.BeginFrame()
-
-		var captured = this.receiver.GetAvailableLength()
-		var copied = true
-
-		for (var i = 0; i < captured && i < RX_FRAME_SIZE; i++) {
-			var rxByte: byte = 0x00
-
-			if (this.receiver.TryRead(i, rxByte) != PacketDataResult.Success) {
-				copied = false;
-				break
-			}
-
-			this.endpoint.LoadRxByte(i, rxByte)
-		}
-
-		this.receiver.TryRelease()
-
-		if (!copied) {
-			this.endpoint.BeginFrame();
-			continue
-		}
-
-		this.endpoint.HandleFrame()
-
-		if (this.endpoint.AcceptedHttpRequest() == true) {
-			var httpLog = "GET /\r\n".Encode()
-			this.SendLog(httpLog)
-		}
-
-		if (this.endpoint.AcceptedRoute(2) == true) {
-			var aboutLog = "GET /about\r\n".Encode()
-			this.SendLog(aboutLog)
-		}
-
-		if (this.endpoint.AcceptedRoute(3) == true) {
-			var statusLog = "GET /status\r\n".Encode()
-			this.SendLog(statusLog)
-		}
-
-		if (this.endpoint.HasResponse() == true) {
-			var responseLength = this.endpoint.GetResponseLength()
-
-			if (responseLength < this.transmitter.GetMinimumFrameLength() ||
-				responseLength > this.transmitter.GetMaximumFrameLength() || responseLength > 1514) {
+		if (!this.receiveHeld) {
+			if (this.receiver.TryAcquire() != FrameLinkResult.Success) {
 				continue
 			}
 
-			this.responseData.TryClear()
-
-			for (var i = 0; i < responseLength; i++) {
-				var responseByte: byte = 0x00
-
-				if (this.endpoint.TryReadResponse(i, responseByte) != PacketDataResult.Success) {
-					break
-				}
-
-				if (this.responseData.TryWrite(i, responseByte as byte) != PacketDataResult.Success) {
-					break
-				}
-			}
-
-			if (this.responseData.GetWrittenLength() != responseLength) {
-				this.responseData.TryClear();
-				continue
-			}
-
-			this.responseData.TryPublish()
-			this.transfer.TryBegin()
+			this.receiveHeld = true
+			this.ethernetFrameDetected = 0b1
+			this.endpoint.HandleFrame()
 		}
 
-		if (this.endpoint.SawArpRequest() == true) {
-			this.arpCount = this.arpCount + 1
+		var phase = this.endpoint.Poll()
 
-			if (this.arpCount > 15) {
-				this.arpCount = 0
-			}
+		if (phase == HttpTransportState.Pending) {
+			continue
 		}
 
-		if (this.endpoint.SawIcmpEcho() == true) {
-			this.icmpCount = this.icmpCount + 1
-
-			if (this.icmpCount > 15) {
-				this.icmpCount = 0
-			}
+		if (phase != HttpTransportState.Prepared) {
+			this.FinishFrame(phase == HttpTransportState.Failed)
+			continue
 		}
 
-		if (this.endpoint.SawSynRequest() == true) {
-			this.synCount = this.synCount + 1
+		this.RecordResponse()
 
-			if (this.synCount > 15) {
-				this.synCount = 0
-			}
+		if (!this.PrepareTransfer()) {
+			this.FinishFrame(true)
+		}
+	}
+
+	/**
+	 * Closes borrowers before RX release and refreshes the next status snapshot; TX must be stopped.
+	 */
+	fn FinishFrame(abort: bool)
+	{
+		if (abort) {
+			this.endpoint.Abort()
 		}
 
-		if (this.endpoint.AcceptedHttpRequest() == true) {
-			this.rootCount = this.rootCount + 1
-
-			if (this.rootCount > 15) {
-				this.rootCount = 0
-			}
+		if (this.endpoint.TryRelease() != PacketDataResult.Success) {
+			return
 		}
 
-		if (this.endpoint.AcceptedRoute(2) == true) {
-			this.aboutCount = this.aboutCount + 1
-
-			if (this.aboutCount > 15) {
-				this.aboutCount = 0
-			}
+		if (this.receiver.TryRelease() == FrameLinkResult.Success) {
+			this.receiveHeld = false
 		}
 
-		if (this.endpoint.AcceptedRoute(3) == true) {
-			this.statusCount = this.statusCount + 1
-
-			if (this.statusCount > 15) {
-				this.statusCount = 0
-			}
-		}
-
-		this.endpoint.BeginFrame()
 		this.statusStore.SetCounters(this.arpCount, this.icmpCount, this.synCount, this.rootCount, this.aboutCount, this.statusCount)
 	}
 
 	/**
-	 * Main is the only producer; skip whole log chunks when the FIFO is full.
+	 * Copies a complete checked response into the transmitter RAM and starts admission.
+	 * The endpoint remains borrowed until terminal TX completion, including failures.
+	 */
+	fn PrepareTransfer() bool
+	{
+		var length = this.endpoint.GetAvailableLength()
+
+		if (length < this.transmitter.GetMinimumFrameLength() || length > this.transmitter.GetMaximumFrameLength() || length > 1514) {
+			return false
+		}
+
+		if (this.responseData.TryClear() != PacketDataResult.Success) {
+			return false
+		}
+
+		for (var i = 0; i < length; i++) {
+			var value: byte = 0x00
+
+			if (this.endpoint.TryRead(i, value) != PacketDataResult.Success || this.responseData.TryWrite(i, value) != PacketDataResult.Success) {
+				this.responseData.TryClear()
+				return false
+			}
+		}
+
+		if (this.responseData.TryPublish() != PacketDataResult.Success) {
+			return false
+		}
+
+		if (this.transfer.TryBegin() != FrameLinkResult.Success) {
+			this.responseData.TryRelease()
+			return false
+		}
+
+		return true
+	}
+
+	/**
+	 * Records each prepared response once; status body updates wait until its readers stop.
+	 */
+	fn RecordResponse()
+	{
+		var kind = this.endpoint.GetResponseKind()
+
+		if (kind == HttpNetworkResponse.Arp) {
+			this.arpCount = (this.arpCount + 1) % 16
+		}
+
+		if (kind == HttpNetworkResponse.IcmpEcho) {
+			this.icmpCount = (this.icmpCount + 1) % 16
+		}
+
+		if (kind == HttpNetworkResponse.TcpSynAck) {
+			this.synCount = (this.synCount + 1) % 16
+		}
+
+		var page = this.routes.GetPreparedPage()
+
+		if (page == DemoPage.Home) {
+			this.rootCount = (this.rootCount + 1) % 16
+			var homeMessage = "GET /\r\n".Encode()
+			this.SendLog(homeMessage)
+		}
+
+		if (page == DemoPage.About) {
+			this.aboutCount = (this.aboutCount + 1) % 16
+			var aboutMessage = "GET /about\r\n".Encode()
+			this.SendLog(aboutMessage)
+		}
+
+		if (page == DemoPage.Status) {
+			this.statusCount = (this.statusCount + 1) % 16
+			var statusMessage = "GET /status\r\n".Encode()
+			this.SendLog(statusMessage)
+		}
+	}
+
+	/**
+	 * Main is the only producer; skip complete chunks when UART space is insufficient.
 	 */
 	fn SendLog(data: byte[])
 	{
@@ -264,10 +235,6 @@ component WebApplication<R: IFrameReceiver, T: IFrameTransmitter>
 			return
 		}
 
-		var accepted = this.uart.Send(data)
-
-		if (accepted != data.Length()) {
-			return
-		}
+		this.uart.Send(data)
 	}
 }

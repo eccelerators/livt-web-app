@@ -1,5 +1,6 @@
 namespace Livt.WebApp.Tests
 
+using Livt.Net
 using Livt.WebApp
 
 @Test
@@ -7,64 +8,36 @@ component AboutHtmlStoreTest
 {
 	store: AboutHtmlStore
 
+	/**
+	 * Constructs the body provider.
+	 */
 	new()
 	{
 		this.store = new AboutHtmlStore()
 	}
 
 	@Test
-	fn IsReadyAfterStartup()
+	/**
+	 * Checks independent body samples, extent and invalid-read behavior.
+	 */
+	fn PublishesCheckedBodyBytes()
 	{
-		this.WaitForReady()
-
-		assert this.store.IsReady() == true
-	}
-
-	@Test
-	fn ExposesLength()
-	{
-		assert this.store.GetLength() == 1321
-	}
-
-	@Test
-	fn ReadsContentBytes()
-	{
-		assert this.store.GetByte(0) == 0x3C
-		assert this.store.GetByte(1) == 0x21
-		assert this.store.GetByte(10) == 0x68
-		assert this.store.GetByte(31) == 0x09
-		assert this.store.GetByte(69) == 0x65
-		assert this.store.GetByte(145) == 0x73
-		assert this.store.GetByte(250) == 0x63
-		assert this.store.GetByte(500) == 0x65
-		assert this.store.GetByte(900) == 0x6D
-		assert this.store.GetByte(1320) == 0x42
-		assert this.store.GetByte(1321) == 0x00
-	}
-
-	@Test
-	fn ComputesChecksumWordSum()
-	{
-		this.WaitForReady()
-
-		assert this.store.IsReady() == true
-		assert this.store.GetChecksumWordSum() == 13797089
-	}
-
-	// Polls IsReady() for up to 800 cycles, allowing process Main to complete.
-	fn WaitForReady()
-	{
-		var done: bool = false
-
-		for (var wait = 0; wait < 800; wait++)
-		{
-			if (done == false)
-			{
-				if (this.store.IsReady() == true)
-				{
-					done = true
-				}
-			}
+		assert this.store.IsReady()
+		assert this.store.GetAvailableLength() == 1322
+		var value: byte = 0x00
+		var start = "<!doctype html><html>".Encode()
+		for (var i = 0; i < start.Length(); i++) {
+			assert this.store.TryRead(i, value) == PacketDataResult.Success
+			assert value == start[i]
 		}
+		var end = "</body></html>".Encode()
+		for (var i = 0; i < end.Length(); i++) {
+			assert this.store.TryRead(1308 + i, value) == PacketDataResult.Success
+			assert value == end[i]
+		}
+		assert this.store.TryRead(-1, value) == PacketDataResult.Invalid
+		assert value == 0x00
+		assert this.store.TryRead(1322, value) == PacketDataResult.Invalid
+		assert value == 0x00
 	}
 }

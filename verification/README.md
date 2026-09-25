@@ -1,7 +1,10 @@
 # Web-app migration verification
 
-The application uses the sibling IO, Net, Web and Base checkouts selected in
-`livt.toml`. Run `livt sync` after changing those checkouts, then:
+The application uses registry Net/Web/IO/Base dependencies selected in
+`livt.toml`. Historical migration runs used sibling Net/Web sources. Run `livt sync` after changing dependencies. For current
+focused checks and the deferred full-page simulation, see
+[framework migration verification](framework-migration.md). The older aggregate
+and UART commands below can take substantially longer:
 
 ```sh
 livt test
@@ -26,6 +29,9 @@ and invalid-capacity checks in its `verification/ethernet` directory.
 
 See [migration evidence](migration-evidence.md) for the toolchain and results.
 These simulations do not establish physical FPGA timing closure or board results.
+
+See [framework board validation](framework-board-validation.md) for the current
+deployment attempt and the opt-in complete HTTP response checker.
 
 ## Packaged Arty startup
 

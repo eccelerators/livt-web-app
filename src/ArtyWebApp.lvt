@@ -1,0 +1,45 @@
+namespace Livt.WebApp
+
+using Livt.Net
+using Livt.Net.Drivers.EthernetLite
+
+/**
+ * Board composition root for the Web demo. Concrete EthernetLite wiring stays
+ * here; WebApplication owns protocol work through frame-link capabilities.
+ * Driver, storage, application and external MAC require coordinated reset.
+ */
+component ArtyWebApp
+{
+	const FRAME_LENGTH: int = 1514
+
+	// Independently constructed storage avoids RX/response/TX constructor cycles.
+	receiver: EthernetLiteReceiver<FRAME_LENGTH>
+	responseData: RamPacketData<FRAME_LENGTH>
+	transmitter: EthernetLiteTransmitter<RamPacketData<FRAME_LENGTH>>
+	bus: EthernetLiteBus
+	driver: EthernetLiteDriver<EthernetLiteBus, RamPacketData<FRAME_LENGTH>, FRAME_LENGTH>
+	application: WebApplication<EthernetLiteReceiver<FRAME_LENGTH>, EthernetLiteTransmitter<RamPacketData<FRAME_LENGTH>>>
+
+	/**
+	 * Binds board signals/configuration and constructs the device-independent application.
+	 */
+	new(
+		axi: IAxi4LiteEthernetLiteMaster,
+		local_mac: in byte[6],
+		local_ip: in byte[4],
+		local_port: in byte[2],
+		uart_rx: in logic,
+		uart_tx: out logic,
+		ethernet_frame_detected: out logic
+	)
+	{
+		this.receiver = new EthernetLiteReceiver<FRAME_LENGTH>()
+		this.responseData = new RamPacketData<FRAME_LENGTH>()
+		this.transmitter = new EthernetLiteTransmitter<RamPacketData<FRAME_LENGTH>>(this.responseData)
+		this.bus = new EthernetLiteBus(axi)
+		this.driver = new EthernetLiteDriver<EthernetLiteBus, RamPacketData<FRAME_LENGTH>, FRAME_LENGTH>(this.bus, this.receiver, this.transmitter, local_mac)
+		this.application = new WebApplication<EthernetLiteReceiver<FRAME_LENGTH>, EthernetLiteTransmitter<RamPacketData<FRAME_LENGTH>>>(
+			this.receiver, this.transmitter, this.responseData, local_mac, local_ip, local_port,
+			uart_rx, uart_tx, ethernet_frame_detected)
+	}
+}

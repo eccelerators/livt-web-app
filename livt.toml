@@ -10,9 +10,9 @@ components = [
     "IndexHtmlStoreTest",
     "AboutHtmlStoreTest",
     "StatusHtmlStoreTest",
-    "WebAppTest",
+    "ArtyWebAppTest",
     "WebApplicationTest",
-    "WebContentTest"
+    "WebRoutesTest"
 ]
 
 [dependencies]
@@ -25,14 +25,14 @@ components = [
 part = "xc7a100tcsg324-1"
 
 [vendor.vivado.ip]
-component = "WebApp"
+component = "ArtyWebApp"
 wrapper = "board/webapp_wrapper.vhd"
 top = "webapp_wrapper"
 vendor = "eccelerators.com"
 library = "samples"
 name = "webapp"
 version = "1.0"
-display_name = "WebApp"
+display_name = "ArtyWebApp"
 description = "Vivado IP generated from a Livt project"
 taxonomy = "/UserIP"
 include_tests = false
